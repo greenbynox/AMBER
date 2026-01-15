@@ -27,21 +27,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev pkg-config cmake
+          sudo apt-get install -y libudev-dev pkg-config cmake libsasl2-dev libssl-dev
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Build Web UI
         run: |
-          npm install
           cd apps/web && npm install && npm run build
 
       - name: Build Rust Services
         run: cargo build --release --workspace
+
+      - name: Debug Build Output
+        shell: bash
+        run: |
+          ls -R target/release | grep ember || true
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -55,7 +58,12 @@ jobs:
         run: |
           chmod +x scripts/packaging/package.sh
           ./scripts/packaging/package.sh
-          OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+          # The package script creates dist/amber-linux or dist/amber-macos
+          if [ "$(uname -s)" = "Darwin" ]; then
+            OS_NAME="macos"
+          else
+            OS_NAME="linux"
+          fi
           cd dist
           tar -czf ../amber-${OS_NAME}-x86_64.tar.gz amber-${OS_NAME}
 
@@ -64,6 +72,7 @@ jobs:
         with:
           name: amber-${{ matrix.os }}
           path: amber-*.zip, amber-*.tar.gz
+          if-no-files-found: error
 
   release:
     name: Create GitHub Release
