@@ -1,0 +1,3 @@
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS slack_webhook_url TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_repo TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_token TEXT;

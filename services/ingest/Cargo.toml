@@ -1,0 +1,26 @@
+[package]
+name = "ember-ingest"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ember-shared = { path = "../../crates/shared" }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+regex = { workspace = true }
+sourcemap = { workspace = true }
+dotenvy = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+aes-gcm = { workspace = true }
+data-encoding = { workspace = true }

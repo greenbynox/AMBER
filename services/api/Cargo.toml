@@ -1,0 +1,28 @@
+[package]
+name = "ember-api"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ember-shared = { path = "../../crates/shared" }
+sqlx = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+regex = { workspace = true }
+tower-http = { workspace = true }
+dotenvy = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = "2.1"
+data-encoding = { workspace = true }
+hmac = { workspace = true }
+ipnet = { workspace = true }
+sha1 = { workspace = true }
+aes-gcm = { workspace = true }

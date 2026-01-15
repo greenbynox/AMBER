@@ -1,0 +1,14 @@
+{
+  "name": "@ember/sdk",
+  "version": "0.1.0",
+  "description": "SDK Node minimal pour EMBER",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./express": "./express.js"
+  },
+  "license": "AGPL-3.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ember
+      POSTGRES_PASSWORD: ember
+      POSTGRES_DB: ember
+    ports:
+      - "5432:5432"
+    volumes:
+      - ember_pg:/var/lib/postgresql/data
+
+volumes:
+  ember_pg:

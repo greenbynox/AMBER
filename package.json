@@ -1,0 +1,13 @@
+{
+  "name": "ember-root",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node scripts/check-cargo.js && cargo run -p ember-api",
+    "api": "node scripts/check-cargo.js && cargo run -p ember-api",
+    "ingest": "node scripts/check-cargo.js && cargo run -p ember-ingest",
+    "worker": "node scripts/check-cargo.js && cargo run -p ember-worker",
+    "relay": "node scripts/check-cargo.js && cargo run -p ember-relay",
+    "pipeline": "node scripts/check-cargo.js && cargo run -p ember-pipeline"
+  }
+}

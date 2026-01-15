@@ -1,0 +1,9 @@
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS webhook_url TEXT;
+
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS first_release TEXT;
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS last_release TEXT;
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS regressed_at TIMESTAMPTZ;
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS release TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_issues_regressed_at ON issues(regressed_at DESC);

@@ -1,0 +1,10 @@
+.env
+/target
+**/target
+Cargo.lock
+.DS_Store
+.vscode
+node_modules
+dist
+logs
+Docker

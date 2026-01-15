@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EMBEREventEnvelope",
+  "type": "object",
+  "required": ["event_id", "project_id", "timestamp", "level", "exception"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "project_id": { "type": "string" },
+    "schema_version": { "type": "string", "pattern": "^v\\d+$", "default": "v1" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "level": { "type": "string", "enum": ["error", "warning", "info", "debug"] },
+    "message": { "type": "string" },
+    "exception": {
+      "type": "object",
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "type": "string" },
+        "message": { "type": "string" },
+        "stacktrace": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["function", "filename", "line"],
+            "properties": {
+              "function": { "type": "string" },
+              "filename": { "type": "string" },
+              "line": { "type": "integer" },
+              "col": { "type": "integer" },
+              "module": { "type": "string" },
+              "in_app": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "email": { "type": "string" }
+          }
+        },
+        "tags": { "type": "object", "additionalProperties": { "type": "string" } },
+        "env": { "type": "string" },
+        "release": { "type": "string" }
+      }
+    },
+    "sdk": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    }
+  }
+}

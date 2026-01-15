@@ -1,0 +1,4 @@
+ALTER TABLE issue_insights
+    ADD COLUMN IF NOT EXISTS causal_chain JSONB,
+    ADD COLUMN IF NOT EXISTS regression_map JSONB,
+    ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;

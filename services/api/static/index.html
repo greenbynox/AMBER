@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EMBER</title>
+  <link rel="stylesheet" href="/app/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>EMBER</h1>
+      <div class="auth">
+        <input id="project" placeholder="project id" />
+        <input id="key" placeholder="api key" />
+        <button id="save">Sauver</button>
+      </div>
+    </header>
+    <section class="filters">
+      <select id="status">
+        <option value="">status</option>
+        <option value="open">open</option>
+        <option value="resolved">resolved</option>
+        <option value="ignored">ignored</option>
+      </select>
+      <select id="level">
+        <option value="">level</option>
+        <option value="error">error</option>
+        <option value="warning">warning</option>
+        <option value="info">info</option>
+        <option value="debug">debug</option>
+      </select>
+      <input id="q" placeholder="search" />
+      <button id="refresh">Filtrer</button>
+      <button id="loadMore" class="ghost">Plus</button>
+    </section>
+    <main>
+      <div id="list"></div>
+      <div id="detail"></div>
+    </main>
+  </div>
+  <script src="/app/app.js"></script>
+</body>
+</html>
