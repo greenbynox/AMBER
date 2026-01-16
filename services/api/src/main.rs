@@ -2142,7 +2142,7 @@ async fn search_issues(
     let pattern = format!("%{}%", query.query.trim());
 
     let rows = sqlx::query(
-        "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.last_user_email, i.last_user_id, COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
+        "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.regressed_at, i.last_user_email, i.last_user_id, COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
         FROM issues i\
         LEFT JOIN (\
             SELECT issue_id, COUNT(*)::bigint AS count_24h\
@@ -2187,6 +2187,9 @@ async fn search_issues(
         let assignee: Option<String> = row
             .try_get("assignee")
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let regressed_at: Option<DateTime<Utc>> = row
+            .try_get("regressed_at")
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
         let last_user_email: Option<String> = row
             .try_get("last_user_email")
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
@@ -2212,6 +2215,7 @@ async fn search_issues(
             assignee,
             affected_users_24h: users_24h,
             last_user,
+            regressed_at: regressed_at.map(|value| value.to_rfc3339()),
         });
     }
 
@@ -2240,7 +2244,7 @@ async fn search_issues_v2(
 
     let rows = if let Some(before_ts) = before {
         sqlx::query(
-            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.last_user_email, i.last_user_id,\
+            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.regressed_at, i.last_user_email, i.last_user_id,\
             COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
             FROM issues i\
             LEFT JOIN (\
@@ -2276,7 +2280,7 @@ async fn search_issues_v2(
         .await
     } else {
         sqlx::query(
-            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.last_user_email, i.last_user_id,\
+            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.regressed_at, i.last_user_email, i.last_user_id,\
             COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
             FROM issues i\
             LEFT JOIN (\
@@ -2333,6 +2337,9 @@ async fn search_issues_v2(
         let assignee: Option<String> = row
             .try_get("assignee")
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let regressed_at: Option<DateTime<Utc>> = row
+            .try_get("regressed_at")
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
         let last_user_email: Option<String> = row
             .try_get("last_user_email")
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
@@ -2357,6 +2364,7 @@ async fn search_issues_v2(
             assignee,
             affected_users_24h: users_24h,
             last_user: last_user_email.or(last_user_id),
+            regressed_at: regressed_at.map(|value| value.to_rfc3339()),
         });
     }
 
