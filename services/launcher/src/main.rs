@@ -3,7 +3,7 @@ use std::io::Write;
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sysinfo::System;
 
 fn main() {
@@ -95,39 +95,76 @@ fn docker_available() -> bool {
 }
 
 fn start_launcher(root: &Path, open_ui: bool) {
-    print_system_checks();
-    maybe_update_repo(root);
+    let started = Instant::now();
+    log_line("\nEMBER Launcher");
+    log_line("Estimation: ~2-4 minutes (selon Docker et le cache).\n");
+    log_line("Plan:");
+    log_line("  1) Vérification système");
+    log_line("  2) Vérification mises à jour");
+    log_line("  3) Docker Desktop");
+    log_line("  4) Démarrage des services");
+    log_line("  5) Vérification API");
+    log_line("  6) Finalisation\n");
 
+    log_step("1/6 Vérification système...");
+    print_system_checks();
+    log_ok();
+
+    log_step("2/6 Vérification des mises à jour...");
+    maybe_update_repo(root);
+    log_ok();
+
+    log_step("3/6 Vérification Docker Desktop...");
     if !ensure_docker_available() {
         eprintln!("Docker Desktop indisponible.");
         std::process::exit(1);
     }
+    log_ok();
 
+    log_step("3/6 Démarrage Docker Desktop...");
     if !start_docker_daemon() {
         eprintln!("Impossible de démarrer Docker Desktop.");
         std::process::exit(1);
     }
+    log_ok();
 
+    log_step("4/6 Démarrage des services (Docker Compose)...");
     if !start_infra(root) {
         eprintln!("Docker compose a échoué.");
         std::process::exit(1);
     }
+    log_ok();
 
+    log_step("5/6 Attente de l'API...");
     if !wait_for_api() {
         eprintln!("API non disponible.");
         std::process::exit(1);
     }
+    log_ok();
 
+    log_step("6/6 Finalisation (raccourci + ouverture navigateur)...");
     create_desktop_shortcut(root);
 
+    let url = if port_open(3000) {
+        "http://localhost:3000"
+    } else {
+        "http://localhost:3002/app"
+    };
+
     if open_ui {
-        let url = if port_open(3000) {
-            "http://localhost:3000"
-        } else {
-            "http://localhost:3002/app"
-        };
         open_browser(url);
     }
+
+    log_ok();
+    log_line("");
+    log_line(&format!("✅ EMBER est prêt en {:.0}s", started.elapsed().as_secs_f32()));
+    log_line(&format!("→ Ouvrir: {}", url));
+    log_line("\nProchain lancement:");
+    log_line("  ember-launcher start");
+    log_line("Arrêt:");
+    log_line("  ember-launcher stop");
+    log_line("Statut:");
+    log_line("  ember-launcher status\n");
 }
 
 fn stop_launcher(root: &Path) {
@@ -250,6 +287,19 @@ fn docker_ready() -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+fn log_line(message: &str) {
+    println!("{}", message);
+    let _ = std::io::stdout().flush();
+}
+
+fn log_step(message: &str) {
+    log_line(message);
+}
+
+fn log_ok() {
+    log_line("✓ OK");
 }
 
 fn start_infra(root: &Path) -> bool {
