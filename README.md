@@ -50,6 +50,9 @@ This base contains the structure and first services.
 ### Infra (Postgres/Kafka/Redis/ClickHouse)
 - `docker compose up -d`
 
+### Full stack (API/ingest/worker/web + infra)
+- `docker compose up -d`
+
 ## Documentation
 See `docs/` for scope, architecture, MVP, and the implementation plan.
 
@@ -58,3 +61,6 @@ See `docs/PLUG_AND_PLAY.md` for one-click startup.
 
 ## Packaging
 See `docs/PACKAGING.md` to generate Windows/macOS/Linux bundles.
+
+## Self-hosted installer
+See `docs/SELF_HOSTED.md` for install/upgrade scripts.

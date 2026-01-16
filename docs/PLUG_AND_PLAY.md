@@ -1,5 +1,15 @@
 # EMBER plug-and-play
 
+## Launcher (recommandé)
+- Double‑clic sur `ember-launcher.exe` (Windows) ou `ember-launcher` (macOS/Linux)
+- Le launcher gère Docker, démarre les services et ouvre le navigateur.
+
+Commandes:
+- `ember-launcher start`
+- `ember-launcher stop`
+- `ember-launcher status`
+- `ember-launcher update`
+
 ## One-click (Windows)
 1. Install Docker Desktop.
 2. Double-click `scripts/start.ps1`.
@@ -11,8 +21,8 @@
 3. Open `http://localhost:3002/app`.
 
 ## What this does
-- Starts Docker Compose infra (minimal: Postgres).
-- Builds `ember-api`, `ember-ingest`, `ember-worker`.
+- Starts Docker Compose infra and AMBER services.
+- Builds and runs `amber-api`, `amber-ingest`, `amber-worker`, `amber-web`.
 - Launches services and opens the UI.
 
 ## Minimal Docker bundle

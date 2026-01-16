@@ -5,6 +5,8 @@ use std::env;
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::Rng;
 use tokio::time::{sleep, Duration};
+use std::time::Instant;
+use reqwest::Method;
 use tracing::{error, info};
 use uuid::Uuid;
 use lettre::{AsyncSmtpTransport, Tokio1Executor, message::Message, transport::smtp::authentication::Credentials, AsyncTransport};
@@ -50,8 +52,141 @@ async fn main() {
         if let Err(err) = process_jobs(&state).await {
             error!("job processing failed: {}", err);
         }
+        if let Err(err) = process_uptime_monitors(&state).await {
+            error!("uptime processing failed: {}", err);
+        }
+        if let Err(err) = process_cron_monitors(&state).await {
+            error!("cron processing failed: {}", err);
+        }
         sleep(Duration::from_secs(2)).await;
     }
+}
+
+async fn process_uptime_monitors(state: &AppState) -> Result<(), String> {
+    let rows = sqlx::query(
+        "SELECT id, project_id, url, method, expected_status, timeout_ms, interval_minutes, headers\
+        FROM uptime_monitors\
+        WHERE enabled = true AND (next_check_at IS NULL OR next_check_at <= now())\
+        ORDER BY next_check_at NULLS FIRST\
+        LIMIT 10",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| err.to_string())?;
+
+    for row in rows {
+        let monitor_id: Uuid = row.try_get("id").map_err(|err| err.to_string())?;
+        let project_id: String = row.try_get("project_id").map_err(|err| err.to_string())?;
+        let url: String = row.try_get("url").map_err(|err| err.to_string())?;
+        let method: String = row.try_get("method").map_err(|err| err.to_string())?;
+        let expected_status: i32 = row.try_get("expected_status").map_err(|err| err.to_string())?;
+        let timeout_ms: i32 = row.try_get("timeout_ms").map_err(|err| err.to_string())?;
+        let interval_minutes: i32 = row.try_get("interval_minutes").map_err(|err| err.to_string())?;
+        let headers: Option<Value> = row.try_get("headers").map_err(|err| err.to_string())?;
+
+        let method = Method::from_bytes(method.as_bytes()).map_err(|_| "method invalide".to_string())?;
+        let mut request = state
+            .http
+            .request(method, &url)
+            .timeout(Duration::from_millis(timeout_ms.max(100) as u64));
+
+        if let Some(Value::Object(map)) = headers {
+            for (key, value) in map {
+                if let Some(text) = value.as_str() {
+                    request = request.header(key, text);
+                }
+            }
+        }
+
+        let start = Instant::now();
+        let result = request.send().await;
+        let duration_ms = start.elapsed().as_millis() as i32;
+
+        let (status, status_code, error) = match result {
+            Ok(response) => {
+                let code = response.status().as_u16() as i32;
+                if code == expected_status {
+                    ("up".to_string(), Some(code), None)
+                } else {
+                    ("down".to_string(), Some(code), Some(format!("status {}", code)))
+                }
+            }
+            Err(err) => ("down".to_string(), None, Some(err.to_string())),
+        };
+
+        let _ = sqlx::query(
+            "INSERT INTO uptime_checks (monitor_id, project_id, status, status_code, duration_ms, error)\
+            VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(monitor_id)
+        .bind(&project_id)
+        .bind(&status)
+        .bind(status_code)
+        .bind(duration_ms)
+        .bind(&error)
+        .execute(&state.db)
+        .await;
+
+        let _ = sqlx::query(
+            "UPDATE uptime_monitors SET status = $1, last_check_at = now(), next_check_at = now() + make_interval(mins => $2), last_duration_ms = $3, last_error = $4, updated_at = now()\
+            WHERE id = $5",
+        )
+        .bind(&status)
+        .bind(interval_minutes)
+        .bind(duration_ms)
+        .bind(&error)
+        .bind(monitor_id)
+        .execute(&state.db)
+        .await;
+    }
+
+    Ok(())
+}
+
+async fn process_cron_monitors(state: &AppState) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE cron_monitors SET next_expected_at = now() + make_interval(mins => schedule_minutes)\
+        WHERE enabled = true AND next_expected_at IS NULL",
+    )
+    .execute(&state.db)
+    .await
+    .map_err(|err| err.to_string())?;
+
+    let rows = sqlx::query(
+        "SELECT id, project_id, schedule_minutes, grace_minutes FROM cron_monitors\
+        WHERE enabled = true AND next_expected_at IS NOT NULL\
+        AND next_expected_at + make_interval(mins => grace_minutes) < now()\
+        ORDER BY next_expected_at ASC\
+        LIMIT 10",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| err.to_string())?;
+
+    for row in rows {
+        let monitor_id: Uuid = row.try_get("id").map_err(|err| err.to_string())?;
+        let project_id: String = row.try_get("project_id").map_err(|err| err.to_string())?;
+        let schedule_minutes: i32 = row.try_get("schedule_minutes").map_err(|err| err.to_string())?;
+
+        let _ = sqlx::query(
+            "INSERT INTO cron_checkins (monitor_id, project_id, status, message) VALUES ($1, $2, 'missed', 'missed check-in')",
+        )
+        .bind(monitor_id)
+        .bind(&project_id)
+        .execute(&state.db)
+        .await;
+
+        let _ = sqlx::query(
+            "UPDATE cron_monitors SET status = 'missed', next_expected_at = now() + make_interval(mins => $1), updated_at = now()\
+            WHERE id = $2",
+        )
+        .bind(schedule_minutes)
+        .bind(monitor_id)
+        .execute(&state.db)
+        .await;
+    }
+
+    Ok(())
 }
 
 async fn process_jobs(state: &AppState) -> Result<(), String> {

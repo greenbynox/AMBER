@@ -149,6 +149,11 @@ async fn main() {
         .route("/projects/:id/webhooks", get(list_webhook_endpoints).post(create_webhook_endpoint))
         .route("/projects/:id/webhooks/:webhook_id", post(delete_webhook_endpoint))
         .route("/projects/:id/webhooks/:webhook_id/deliveries", get(list_webhook_deliveries))
+        .route("/projects/:id/uptime/monitors", get(list_uptime_monitors).post(upsert_uptime_monitor))
+        .route("/projects/:id/uptime/monitors/:monitor_id/checks", get(list_uptime_checks))
+        .route("/projects/:id/uptime/monitors/:monitor_id/run", post(run_uptime_check))
+        .route("/projects/:id/crons/monitors", get(list_cron_monitors).post(upsert_cron_monitor))
+        .route("/projects/:id/crons/monitors/:monitor_id/checkins", get(list_cron_checkins).post(create_cron_checkin))
         .route("/projects/:id/releases", get(list_releases).post(create_release))
         .route("/projects/:id/releases/:version", get(get_release_detail))
         .route("/projects/:id/releases/:version/regressions", get(list_release_regressions))
@@ -266,6 +271,7 @@ struct IssueSummary {
     assignee: Option<String>,
     affected_users_24h: i64,
     last_user: Option<String>,
+    regressed_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1035,7 +1041,46 @@ struct CreateWebhookEndpointBody {
 }
 
 #[derive(Deserialize)]
+struct UpsertUptimeMonitorBody {
+    id: Option<String>,
+    name: String,
+    url: String,
+    method: Option<String>,
+    expected_status: Option<i32>,
+    timeout_ms: Option<i32>,
+    interval_minutes: Option<i32>,
+    headers: Option<Value>,
+    enabled: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct UpsertCronMonitorBody {
+    id: Option<String>,
+    name: String,
+    schedule_minutes: Option<i32>,
+    grace_minutes: Option<i32>,
+    timezone: Option<String>,
+    enabled: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct CronCheckinBody {
+    status: Option<String>,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct WebhookDeliveriesQuery {
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct UptimeChecksQuery {
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct CronCheckinsQuery {
     limit: Option<u32>,
 }
 
@@ -1157,6 +1202,63 @@ struct WebhookDeliverySummary {
     status_code: Option<i32>,
     error: Option<String>,
     created_at: String,
+}
+
+#[derive(Serialize)]
+struct UptimeMonitorSummary {
+    id: String,
+    project_id: String,
+    name: String,
+    url: String,
+    method: String,
+    expected_status: i32,
+    timeout_ms: i32,
+    interval_minutes: i32,
+    headers: Option<Value>,
+    enabled: bool,
+    status: String,
+    last_check_at: Option<String>,
+    next_check_at: Option<String>,
+    last_duration_ms: Option<i32>,
+    last_error: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+struct UptimeCheckSummary {
+    id: String,
+    monitor_id: String,
+    status: String,
+    status_code: Option<i32>,
+    duration_ms: Option<i32>,
+    error: Option<String>,
+    checked_at: String,
+}
+
+#[derive(Serialize)]
+struct CronMonitorSummary {
+    id: String,
+    project_id: String,
+    name: String,
+    schedule_minutes: i32,
+    grace_minutes: i32,
+    timezone: String,
+    enabled: bool,
+    status: String,
+    last_checkin_at: Option<String>,
+    next_expected_at: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+struct CronCheckinSummary {
+    id: String,
+    monitor_id: String,
+    status: String,
+    message: Option<String>,
+    checked_in_at: String,
 }
 
 #[derive(Deserialize)]
@@ -1539,7 +1641,7 @@ async fn list_issues(
 
     let rows = if let Some(before_ts) = before {
         sqlx::query(
-            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.last_user_email, i.last_user_id, COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
+            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.regressed_at, i.last_user_email, i.last_user_id, COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
             FROM issues i\
             LEFT JOIN (\
                 SELECT issue_id, COUNT(*)::bigint AS count_24h\
@@ -1570,7 +1672,7 @@ async fn list_issues(
         .await
     } else {
         sqlx::query(
-            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.last_user_email, i.last_user_id, COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
+            "SELECT i.id, i.title, i.level, i.status, i.last_seen, i.assignee, i.regressed_at, i.last_user_email, i.last_user_id, COALESCE(e.count_24h, 0) AS count_24h, COALESCE(u.users_24h, 0) AS users_24h\
             FROM issues i\
             LEFT JOIN (\
                 SELECT issue_id, COUNT(*)::bigint AS count_24h\
@@ -1621,6 +1723,9 @@ async fn list_issues(
         let assignee: Option<String> = row
             .try_get("assignee")
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let regressed_at: Option<DateTime<Utc>> = row
+            .try_get("regressed_at")
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
         let last_user_email: Option<String> = row
             .try_get("last_user_email")
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
@@ -1646,6 +1751,7 @@ async fn list_issues(
             assignee,
             affected_users_24h: users_24h,
             last_user,
+            regressed_at: regressed_at.map(|value| value.to_rfc3339()),
         });
     }
 
@@ -8713,6 +8819,549 @@ async fn list_webhook_deliveries(
     }
 
     Ok(Json(items))
+}
+
+async fn list_uptime_monitors(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<UptimeMonitorSummary>>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    if auth.project_id != id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let rows = sqlx::query(
+        "SELECT id, project_id, name, url, method, expected_status, timeout_ms, interval_minutes, headers, enabled, status, last_check_at, next_check_at, last_duration_ms, last_error, created_at, updated_at\
+        FROM uptime_monitors\
+        WHERE project_id = $1\
+        ORDER BY created_at DESC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let monitor_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let project_id: String = row.try_get("project_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let name: String = row.try_get("name").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let url: String = row.try_get("url").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let method: String = row.try_get("method").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let expected_status: i32 = row.try_get("expected_status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let timeout_ms: i32 = row.try_get("timeout_ms").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let interval_minutes: i32 = row.try_get("interval_minutes").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let headers_json: Option<Value> = row.try_get("headers").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let enabled: bool = row.try_get("enabled").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let last_check_at: Option<DateTime<Utc>> = row.try_get("last_check_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let next_check_at: Option<DateTime<Utc>> = row.try_get("next_check_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let last_duration_ms: Option<i32> = row.try_get("last_duration_ms").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let last_error: Option<String> = row.try_get("last_error").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let created_at: DateTime<Utc> = row.try_get("created_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+        items.push(UptimeMonitorSummary {
+            id: monitor_id.to_string(),
+            project_id,
+            name,
+            url,
+            method,
+            expected_status,
+            timeout_ms,
+            interval_minutes,
+            headers: headers_json,
+            enabled,
+            status,
+            last_check_at: last_check_at.map(|value| value.to_rfc3339()),
+            next_check_at: next_check_at.map(|value| value.to_rfc3339()),
+            last_duration_ms,
+            last_error,
+            created_at: created_at.to_rfc3339(),
+            updated_at: updated_at.to_rfc3339(),
+        });
+    }
+
+    Ok(Json(items))
+}
+
+async fn upsert_uptime_monitor(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(payload): Json<UpsertUptimeMonitorBody>,
+) -> Result<Json<UptimeMonitorSummary>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    require_project_scope(&auth, "project:write")?;
+    if auth.project_id != id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let name = payload.name.trim();
+    let url = payload.url.trim();
+    if name.is_empty() || url.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "payload invalide".to_string()));
+    }
+
+    let method = payload.method.unwrap_or_else(|| "GET".to_string());
+    let method = method.trim().to_uppercase();
+    if method.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "method invalide".to_string()));
+    }
+
+    let expected_status = payload.expected_status.unwrap_or(200).clamp(100, 599);
+    let timeout_ms = payload.timeout_ms.unwrap_or(5000).clamp(100, 60000);
+    let interval_minutes = payload.interval_minutes.unwrap_or(5).max(1);
+    let enabled = payload.enabled.unwrap_or(true);
+
+    let row = if let Some(raw_id) = payload.id.as_deref() {
+        let monitor_id = Uuid::parse_str(raw_id)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "id invalide".to_string()))?;
+        sqlx::query(
+            "UPDATE uptime_monitors SET name = $3, url = $4, method = $5, expected_status = $6, timeout_ms = $7, interval_minutes = $8, headers = $9, enabled = $10,\
+            next_check_at = CASE WHEN $10 THEN now() + make_interval(mins => $8) ELSE NULL END, updated_at = now()\
+            WHERE id = $1 AND project_id = $2\
+            RETURNING id, project_id, name, url, method, expected_status, timeout_ms, interval_minutes, headers, enabled, status, last_check_at, next_check_at, last_duration_ms, last_error, created_at, updated_at",
+        )
+        .bind(monitor_id)
+        .bind(&id)
+        .bind(name)
+        .bind(url)
+        .bind(&method)
+        .bind(expected_status)
+        .bind(timeout_ms)
+        .bind(interval_minutes)
+        .bind(&payload.headers)
+        .bind(enabled)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+    } else {
+        Some(
+            sqlx::query(
+                "INSERT INTO uptime_monitors (project_id, name, url, method, expected_status, timeout_ms, interval_minutes, headers, enabled, next_check_at)\
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(mins => $7))\
+                RETURNING id, project_id, name, url, method, expected_status, timeout_ms, interval_minutes, headers, enabled, status, last_check_at, next_check_at, last_duration_ms, last_error, created_at, updated_at",
+            )
+            .bind(&id)
+            .bind(name)
+            .bind(url)
+            .bind(&method)
+            .bind(expected_status)
+            .bind(timeout_ms)
+            .bind(interval_minutes)
+            .bind(&payload.headers)
+            .bind(enabled)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?,
+        )
+    };
+
+    let row = match row {
+        Some(row) => row,
+        None => return Err((StatusCode::NOT_FOUND, "monitor introuvable".to_string())),
+    };
+
+    let monitor_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let project_id: String = row.try_get("project_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let name: String = row.try_get("name").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let url: String = row.try_get("url").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let method: String = row.try_get("method").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let expected_status: i32 = row.try_get("expected_status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let timeout_ms: i32 = row.try_get("timeout_ms").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let interval_minutes: i32 = row.try_get("interval_minutes").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let headers_json: Option<Value> = row.try_get("headers").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let enabled: bool = row.try_get("enabled").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let last_check_at: Option<DateTime<Utc>> = row.try_get("last_check_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let next_check_at: Option<DateTime<Utc>> = row.try_get("next_check_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let last_duration_ms: Option<i32> = row.try_get("last_duration_ms").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let last_error: Option<String> = row.try_get("last_error").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let created_at: DateTime<Utc> = row.try_get("created_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    Ok(Json(UptimeMonitorSummary {
+        id: monitor_id.to_string(),
+        project_id,
+        name,
+        url,
+        method,
+        expected_status,
+        timeout_ms,
+        interval_minutes,
+        headers: headers_json,
+        enabled,
+        status,
+        last_check_at: last_check_at.map(|value| value.to_rfc3339()),
+        next_check_at: next_check_at.map(|value| value.to_rfc3339()),
+        last_duration_ms,
+        last_error,
+        created_at: created_at.to_rfc3339(),
+        updated_at: updated_at.to_rfc3339(),
+    }))
+}
+
+async fn list_uptime_checks(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, monitor_id)): Path<(String, String)>,
+    Query(query): Query<UptimeChecksQuery>,
+) -> Result<Json<Vec<UptimeCheckSummary>>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    if auth.project_id != project_id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let monitor_uuid = Uuid::parse_str(&monitor_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "monitor_id invalide".to_string()))?;
+    let limit = query.limit.unwrap_or(50).min(200) as i64;
+
+    let rows = sqlx::query(
+        "SELECT c.id, c.monitor_id, c.status, c.status_code, c.duration_ms, c.error, c.checked_at\
+        FROM uptime_checks c\
+        JOIN uptime_monitors m ON m.id = c.monitor_id\
+        WHERE m.project_id = $1 AND c.monitor_id = $2\
+        ORDER BY c.checked_at DESC\
+        LIMIT $3",
+    )
+    .bind(&project_id)
+    .bind(monitor_uuid)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let check_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let monitor_id: Uuid = row.try_get("monitor_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let status_code: Option<i32> = row.try_get("status_code").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let duration_ms: Option<i32> = row.try_get("duration_ms").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let error: Option<String> = row.try_get("error").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let checked_at: DateTime<Utc> = row.try_get("checked_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+        items.push(UptimeCheckSummary {
+            id: check_id.to_string(),
+            monitor_id: monitor_id.to_string(),
+            status,
+            status_code,
+            duration_ms,
+            error,
+            checked_at: checked_at.to_rfc3339(),
+        });
+    }
+
+    Ok(Json(items))
+}
+
+async fn run_uptime_check(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, monitor_id)): Path<(String, String)>,
+) -> Result<&'static str, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    require_project_scope(&auth, "project:write")?;
+    if auth.project_id != project_id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let monitor_uuid = Uuid::parse_str(&monitor_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "monitor_id invalide".to_string()))?;
+    let result = sqlx::query(
+        "UPDATE uptime_monitors SET next_check_at = now() WHERE id = $1 AND project_id = $2",
+    )
+    .bind(monitor_uuid)
+    .bind(&project_id)
+    .execute(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "monitor introuvable".to_string()));
+    }
+
+    Ok("ok")
+}
+
+async fn list_cron_monitors(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<CronMonitorSummary>>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    if auth.project_id != id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let rows = sqlx::query(
+        "SELECT id, project_id, name, schedule_minutes, grace_minutes, timezone, enabled, status, last_checkin_at, next_expected_at, created_at, updated_at\
+        FROM cron_monitors\
+        WHERE project_id = $1\
+        ORDER BY created_at DESC",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let monitor_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let project_id: String = row.try_get("project_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let name: String = row.try_get("name").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let schedule_minutes: i32 = row.try_get("schedule_minutes").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let grace_minutes: i32 = row.try_get("grace_minutes").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let timezone: String = row.try_get("timezone").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let enabled: bool = row.try_get("enabled").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let last_checkin_at: Option<DateTime<Utc>> = row.try_get("last_checkin_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let next_expected_at: Option<DateTime<Utc>> = row.try_get("next_expected_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let created_at: DateTime<Utc> = row.try_get("created_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+        items.push(CronMonitorSummary {
+            id: monitor_id.to_string(),
+            project_id,
+            name,
+            schedule_minutes,
+            grace_minutes,
+            timezone,
+            enabled,
+            status,
+            last_checkin_at: last_checkin_at.map(|value| value.to_rfc3339()),
+            next_expected_at: next_expected_at.map(|value| value.to_rfc3339()),
+            created_at: created_at.to_rfc3339(),
+            updated_at: updated_at.to_rfc3339(),
+        });
+    }
+
+    Ok(Json(items))
+}
+
+async fn upsert_cron_monitor(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(payload): Json<UpsertCronMonitorBody>,
+) -> Result<Json<CronMonitorSummary>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    require_project_scope(&auth, "project:write")?;
+    if auth.project_id != id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let name = payload.name.trim();
+    if name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "payload invalide".to_string()));
+    }
+
+    let schedule_minutes = payload.schedule_minutes.unwrap_or(60).max(1);
+    let grace_minutes = payload.grace_minutes.unwrap_or(5).max(0);
+    let timezone = payload.timezone.unwrap_or_else(|| "UTC".to_string());
+    let timezone = timezone.trim().to_string();
+    let enabled = payload.enabled.unwrap_or(true);
+
+    let row = if let Some(raw_id) = payload.id.as_deref() {
+        let monitor_id = Uuid::parse_str(raw_id)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "id invalide".to_string()))?;
+        sqlx::query(
+            "UPDATE cron_monitors SET name = $3, schedule_minutes = $4, grace_minutes = $5, timezone = $6, enabled = $7,\
+            next_expected_at = CASE WHEN $7 THEN now() + make_interval(mins => $4) ELSE NULL END, updated_at = now()\
+            WHERE id = $1 AND project_id = $2\
+            RETURNING id, project_id, name, schedule_minutes, grace_minutes, timezone, enabled, status, last_checkin_at, next_expected_at, created_at, updated_at",
+        )
+        .bind(monitor_id)
+        .bind(&id)
+        .bind(name)
+        .bind(schedule_minutes)
+        .bind(grace_minutes)
+        .bind(&timezone)
+        .bind(enabled)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+    } else {
+        Some(
+            sqlx::query(
+                "INSERT INTO cron_monitors (project_id, name, schedule_minutes, grace_minutes, timezone, enabled, next_expected_at)\
+                VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(mins => $3))\
+                RETURNING id, project_id, name, schedule_minutes, grace_minutes, timezone, enabled, status, last_checkin_at, next_expected_at, created_at, updated_at",
+            )
+            .bind(&id)
+            .bind(name)
+            .bind(schedule_minutes)
+            .bind(grace_minutes)
+            .bind(&timezone)
+            .bind(enabled)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?,
+        )
+    };
+
+    let row = match row {
+        Some(row) => row,
+        None => return Err((StatusCode::NOT_FOUND, "monitor introuvable".to_string())),
+    };
+
+    let monitor_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let project_id: String = row.try_get("project_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let name: String = row.try_get("name").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let schedule_minutes: i32 = row.try_get("schedule_minutes").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let grace_minutes: i32 = row.try_get("grace_minutes").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let timezone: String = row.try_get("timezone").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let enabled: bool = row.try_get("enabled").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let last_checkin_at: Option<DateTime<Utc>> = row.try_get("last_checkin_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let next_expected_at: Option<DateTime<Utc>> = row.try_get("next_expected_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let created_at: DateTime<Utc> = row.try_get("created_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    Ok(Json(CronMonitorSummary {
+        id: monitor_id.to_string(),
+        project_id,
+        name,
+        schedule_minutes,
+        grace_minutes,
+        timezone,
+        enabled,
+        status,
+        last_checkin_at: last_checkin_at.map(|value| value.to_rfc3339()),
+        next_expected_at: next_expected_at.map(|value| value.to_rfc3339()),
+        created_at: created_at.to_rfc3339(),
+        updated_at: updated_at.to_rfc3339(),
+    }))
+}
+
+async fn list_cron_checkins(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, monitor_id)): Path<(String, String)>,
+    Query(query): Query<CronCheckinsQuery>,
+) -> Result<Json<Vec<CronCheckinSummary>>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    if auth.project_id != project_id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let monitor_uuid = Uuid::parse_str(&monitor_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "monitor_id invalide".to_string()))?;
+    let limit = query.limit.unwrap_or(50).min(200) as i64;
+
+    let rows = sqlx::query(
+        "SELECT c.id, c.monitor_id, c.status, c.message, c.checked_in_at\
+        FROM cron_checkins c\
+        JOIN cron_monitors m ON m.id = c.monitor_id\
+        WHERE m.project_id = $1 AND c.monitor_id = $2\
+        ORDER BY c.checked_in_at DESC\
+        LIMIT $3",
+    )
+    .bind(&project_id)
+    .bind(monitor_uuid)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let check_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let monitor_id: Uuid = row.try_get("monitor_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let message: Option<String> = row.try_get("message").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+        let checked_in_at: DateTime<Utc> = row.try_get("checked_in_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+        items.push(CronCheckinSummary {
+            id: check_id.to_string(),
+            monitor_id: monitor_id.to_string(),
+            status,
+            message,
+            checked_in_at: checked_in_at.to_rfc3339(),
+        });
+    }
+
+    Ok(Json(items))
+}
+
+async fn create_cron_checkin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((project_id, monitor_id)): Path<(String, String)>,
+    Json(payload): Json<CronCheckinBody>,
+) -> Result<Json<CronCheckinSummary>, (StatusCode, String)> {
+    let auth = authorize_project_access(&state.db, &headers).await?;
+    require_project_scope(&auth, "project:write")?;
+    if auth.project_id != project_id {
+        return Err((StatusCode::FORBIDDEN, "accès refusé".to_string()));
+    }
+
+    let monitor_uuid = Uuid::parse_str(&monitor_id)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "monitor_id invalide".to_string()))?;
+    let status = payload.status.unwrap_or_else(|| "ok".to_string()).trim().to_lowercase();
+    if !matches!(status.as_str(), "ok" | "error" | "missed") {
+        return Err((StatusCode::BAD_REQUEST, "status invalide".to_string()));
+    }
+    let message = payload.message.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+
+    let monitor_row = sqlx::query(
+        "SELECT schedule_minutes FROM cron_monitors WHERE id = $1 AND project_id = $2",
+    )
+    .bind(monitor_uuid)
+    .bind(&project_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let monitor_row = match monitor_row {
+        Some(row) => row,
+        None => return Err((StatusCode::NOT_FOUND, "monitor introuvable".to_string())),
+    };
+
+    let schedule_minutes: i32 = monitor_row
+        .try_get("schedule_minutes")
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let row = sqlx::query(
+        "INSERT INTO cron_checkins (monitor_id, project_id, status, message)\
+        VALUES ($1, $2, $3, $4)\
+        RETURNING id, monitor_id, status, message, checked_in_at",
+    )
+    .bind(monitor_uuid)
+    .bind(&project_id)
+    .bind(&status)
+    .bind(&message)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    sqlx::query(
+        "UPDATE cron_monitors SET status = $1, last_checkin_at = now(), next_expected_at = now() + make_interval(mins => $2), updated_at = now()\
+        WHERE id = $3 AND project_id = $4",
+    )
+    .bind(&status)
+    .bind(schedule_minutes)
+    .bind(monitor_uuid)
+    .bind(&project_id)
+    .execute(&state.db)
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let check_id: Uuid = row.try_get("id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let monitor_id: Uuid = row.try_get("monitor_id").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let status: String = row.try_get("status").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let message: Option<String> = row.try_get("message").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let checked_in_at: DateTime<Utc> = row.try_get("checked_in_at").map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    Ok(Json(CronCheckinSummary {
+        id: check_id.to_string(),
+        monitor_id: monitor_id.to_string(),
+        status,
+        message,
+        checked_in_at: checked_in_at.to_rfc3339(),
+    }))
 }
 
 async fn count_tier_candidates(

@@ -6,3 +6,4 @@ license = "AGPL-3.0"
 
 [dependencies]
 dotenvy = { workspace = true }
+sysinfo = "0.31"

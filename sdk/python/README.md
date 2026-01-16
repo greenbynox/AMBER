@@ -24,6 +24,8 @@ except Exception as err:
     })
 ```
 
+Auto‑capture installe un excepthook global et capture les erreurs non gérées.
+
 ## FastAPI
 ```python
 from ember_sdk import add_fastapi_handlers

@@ -10,6 +10,60 @@ services:
     volumes:
       - ember_pg:/var/lib/postgresql/data
 
+  amber-api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    depends_on:
+      - postgres
+    ports:
+      - "3002:3002"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://ember:ember@postgres:5432/ember
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fsS http://localhost:3002/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  amber-ingest:
+    build:
+      context: .
+      dockerfile: services/ingest/Dockerfile
+    depends_on:
+      - postgres
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://ember:ember@postgres:5432/ember
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -fsS http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  amber-worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://ember:ember@postgres:5432/ember
+
+  amber-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "3000:80"
+
   redis:
     image: redis:7
     ports:

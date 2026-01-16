@@ -172,6 +172,101 @@ button:disabled {
   align-items: end;
 }
 
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tab {
+  background: #0f172a;
+  color: #cbd5f5;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.tab.active {
+  background: #38bdf8;
+  color: #0b0d12;
+  border-color: transparent;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.stat-card {
+  background: #0f172a;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  display: grid;
+  gap: 6px;
+}
+
+.stat-card span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.stat-card strong {
+  font-size: 20px;
+}
+
+.bulk-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.dashboard-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.widget-card {
+  background: #0f172a;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  display: grid;
+  gap: 8px;
+}
+
+.widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.marketplace-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.marketplace-card {
+  background: #0f172a;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  display: grid;
+  gap: 10px;
+}
+
+.marketplace-card.enabled {
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2);
+}
+
 .table {
   margin-top: 16px;
   display: grid;
@@ -204,6 +299,18 @@ button:disabled {
 
 .table-row .title {
   font-weight: 600;
+}
+
+.issues-row {
+  grid-template-columns: 0.3fr 2.2fr 0.8fr 0.8fr 1fr 0.8fr 1fr;
+}
+
+.uptime-row {
+  grid-template-columns: 1.2fr 2fr 0.8fr 1fr 1fr 0.7fr;
+}
+
+.cron-row {
+  grid-template-columns: 1.6fr 0.8fr 1fr 1fr;
 }
 
 .detail {

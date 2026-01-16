@@ -29,6 +29,9 @@ try {
     user: { id: "42", email: "dev@local" },
   });
 }
+```
+
+Auto‑capture installe `uncaughtException` + `unhandledRejection`.
 
 ## Express (middleware)
 ```js
@@ -39,5 +42,4 @@ app.use(emberRequestHandler({
 }));
 
 app.use(emberErrorHandler());
-```
 ```
