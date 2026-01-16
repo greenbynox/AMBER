@@ -26,6 +26,13 @@ cp "$ROOT_DIR/target/release/ember-worker" "$TARGET_DIR/bin/"
 cp "$ROOT_DIR/target/release/ember-launcher" "$TARGET_DIR/bin/"
 cp "$ROOT_DIR/scripts/start.sh" "$TARGET_DIR/scripts/"
 cp "$ROOT_DIR/.env.example" "$TARGET_DIR/"
+
+echo "Include Web UI..."
+mkdir -p "$TARGET_DIR/static"
+if [ -d "$ROOT_DIR/apps/web/dist" ]; then
+  cp -r "$ROOT_DIR/apps/web/dist/"* "$TARGET_DIR/static/"
+fi
+
 [ -f "$ROOT_DIR/docker-min.zip" ] && cp "$ROOT_DIR/docker-min.zip" "$TARGET_DIR/" || true
 
 chmod +x "$TARGET_DIR/scripts/start.sh"

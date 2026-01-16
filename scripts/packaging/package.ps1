@@ -25,6 +25,13 @@ Copy-Item "$root\target\release\ember-launcher.exe" "$winDir\bin\" -Force
 Copy-Item "$root\scripts\start.cmd" "$winDir\scripts\" -Force
 Copy-Item "$root\scripts\start.ps1" "$winDir\scripts\" -Force
 Copy-Item "$root\.env.example" "$winDir\" -Force
+
+Write-Host "Include Web UI..."
+New-Item -ItemType Directory -Path (Join-Path $winDir "static") | Out-Null
+if (Test-Path "$root\apps\web\dist") {
+    Copy-Item "$root\apps\web\dist\*" (Join-Path $winDir "static") -Recurse -Force
+}
+
 Copy-Item "$root\docker-min.zip" "$winDir\" -Force -ErrorAction SilentlyContinue
 
 Write-Host "Windows package ready: $winDir" -ForegroundColor Green
