@@ -2,9 +2,9 @@ use std::fs;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 use std::time::Duration;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 
 fn main() {
     let root = resolve_root().unwrap_or_else(|| {
@@ -434,7 +434,7 @@ fn create_desktop_shortcut(root: &Path) {
         .status();
 }
 
-fn create_unix_shortcut(root: &Path) {
+fn create_unix_shortcut(_root: &Path) {
     let exe_path = match std::env::current_exe() {
         Ok(path) => path,
         Err(_) => return,
